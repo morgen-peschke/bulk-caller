@@ -1,10 +1,11 @@
 package peschke.bulk_calls
 package config
 
+import com.typesafe.config.ConfigException
 import config.ConfigReader.syntax._
 import config.TemplateConfig.{Placeholders, SubstitutionMarkers}
-
 import io.circe.{Json, Printer}
+import peschke.bulk_calls.models.Done
 
 final case class TemplateConfig(allowEmpty: Boolean,
                                 doNotUseExponents: Boolean,
@@ -31,6 +32,15 @@ object TemplateConfig {
         subConfig <- config.at(path)
         open <- subConfig.read[String]("open")
         close <- subConfig.read[String]("close")
+        _ <- Either.cond(
+          test = open != close,
+          right = Done,
+          left = new ConfigException.BadValue(
+            config.origin,
+            subConfig.fullPath("close"),
+            s"close cannot be the same as ${subConfig.fullPath("open")}"
+          )
+        )
       } yield SubstitutionMarkers(open = open, close = close)
     }
   }

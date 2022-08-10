@@ -5,9 +5,8 @@ import config.{AppConfig, TemplateConfig}
 import models.Template.{Element, Name}
 import models.{Data, Template}
 import services.TemplateExpander.ExpansionError
-import services.TemplateExpander.ExpansionError.{ExpansionProducedInvalidJson, MissingSubstitution, ScalarRequired}
+import services.TemplateExpander.ExpansionError.{ExpansionProducedInvalidJson, JsonArrayForbidden, JsonObjectForbidden, MissingSubstitution}
 import utils.CirceUtils._
-
 import cats.data.{Chain, ValidatedNel}
 import cats.syntax.applicative._
 import cats.syntax.either._
@@ -21,29 +20,70 @@ import io.circe._
 import io.circe.generic.semiauto._
 import io.circe.syntax._
 
-import scala.annotation.tailrec
-
+/**
+  * Expand a [[peschke.bulk_calls.models.Template]]
+  */
 trait TemplateExpander[F[_]] {
+  /**
+    * Expands templates, with the restriction that a value may only be a scalar JSON value.
+    */
   def expandText(template: Template, data: Data): F[ValidatedNel[ExpansionError, String]]
 
+  /**
+    * Expands a template, with the restriction that a value may only be a scalar JSON value
+    * or a JSON array.
+    *
+    * Arrays are resolved by producing the product of the results.
+    *
+    * Example:
+    * - template: `"{{a}}-{{b}}-{{c}}-{{d}}"`
+    * - data: {{{
+    *   {"a": [1,2], "b": true, "c": ['a'], "d": [1,2,3]}
+    * }}}
+    *
+    * Expansions:
+    * {{{
+    *   1-true-a-1
+    *   1-true-a-2
+    *   1-true-a-3
+    *   2-true-a-1
+    *   2-true-a-2
+    *   2-true-a-3
+    * }}}
+    */
   def expandTextWithRepetition(template: Template, data: Data): F[ValidatedNel[ExpansionError, List[String]]]
 
+  /**
+    * Expand a template by inlining the JSON values.
+    *
+    * Must produce a valid JSON string, which will be returned as a [[io.circe.Json]]
+    */
   def expandJson(template: Template, data: Data): F[ValidatedNel[ExpansionError, Json]]
 }
+
 object TemplateExpander {
 
   sealed abstract class ExpansionError extends Product with Serializable {
     def upcast: ExpansionError = this
   }
+
   object ExpansionError {
     final case class MissingSubstitution(name: Name) extends ExpansionError
+
     object MissingSubstitution {
       implicit final val codec: Codec[MissingSubstitution] = deriveCodec[MissingSubstitution].withIdentifier
     }
 
-    final case class ScalarRequired(name: Name) extends ExpansionError
-    object ScalarRequired {
-      implicit final val codec: Codec[ScalarRequired] = deriveCodec[ScalarRequired].withIdentifier
+    final case class JsonArrayForbidden(name: Name) extends ExpansionError
+
+    object JsonArrayForbidden {
+      implicit final val codec: Codec[JsonArrayForbidden] = deriveCodec[JsonArrayForbidden].withIdentifier
+    }
+
+    final case class JsonObjectForbidden(name: Name) extends ExpansionError
+
+    object JsonObjectForbidden {
+      implicit final val codec: Codec[JsonObjectForbidden] = deriveCodec[JsonObjectForbidden].withIdentifier
     }
 
     final case class ExpansionProducedInvalidJson(expanded: String,
@@ -57,7 +97,8 @@ object TemplateExpander {
 
     implicit final val show: Show[ExpansionError] = Show.show {
       case MissingSubstitution(name) => show"missing $name"
-      case ScalarRequired(name) => show"$name cannot be a JSON object or array"
+      case JsonArrayForbidden(name) => show"$name cannot be a JSON array"
+      case JsonObjectForbidden(name) => show"$name cannot be a JSON object"
       case ExpansionProducedInvalidJson(expanded, parsingFailure) =>
         s"""|Expanded template produced invalid JSON
             |========== Expanded Template ==========
@@ -71,13 +112,15 @@ object TemplateExpander {
     implicit final val codec: Codec[ExpansionError] = Codec.from(
       List[Decoder[ExpansionError]](
         Decoder[MissingSubstitution].widen,
-        Decoder[ScalarRequired].widen,
+        Decoder[JsonArrayForbidden].widen,
+        Decoder[JsonObjectForbidden].widen,
         Decoder[ExpansionProducedInvalidJson].widen
       ).reduceLeft(_ or _),
       Encoder.instance {
-        case ee @ MissingSubstitution(_) => ee.asJson
-        case ee @ ScalarRequired(_) => ee.asJson
-        case ee @ ExpansionProducedInvalidJson(_, _) => ee.asJson
+        case ee@MissingSubstitution(_) => ee.asJson
+        case ee@JsonArrayForbidden(_) => ee.asJson
+        case ee@JsonObjectForbidden(_) => ee.asJson
+        case ee@ExpansionProducedInvalidJson(_, _) => ee.asJson
       }
     )
   }
@@ -98,49 +141,45 @@ object TemplateExpander {
     }
   }
 
-  def default[F[_]: Applicative](implicit appConfig: AppConfig): TemplateExpander[F] =
+  def default[F[_] : Applicative](implicit appConfig: AppConfig): TemplateExpander[F] =
     new Default[F](appConfig.constants, appConfig.templateConfig)
 
-  final class Default[F[_]: Applicative](constants: Data.Constants, config: TemplateConfig)
+  final class Default[F[_] : Applicative](constants: Data.Constants, config: TemplateConfig)
     extends TemplateExpander[F] with Serializable {
 
-    def stringifyJson(name: Name, json: Json): ValidatedNel[ExpansionError, Chain[String]] = {
-      val nullAttempt = json.asNull.map(_ => Chain.one("null").valid)
-      val numberAttempt = json.asNumber.flatMap(_.toBigDecimal).map { bigD =>
-        Chain.one {
-          if (config.doNotUseExponents) bigD.bigDecimal.toPlainString
-          else bigD.bigDecimal.toEngineeringString
-        }.valid
-      }
-      val stringAttempt = json.asString.map(Chain.one(_).valid)
-      val booleanAttempt = json.asBoolean.map(b => Chain.one(if (b) "true" else "false").valid)
-      val arrayAttempt = json.asArray.map { children =>
-        children
-          .traverse(stringifyJson(name, _))
-          .andThen(_.traverse(_.uncons match {
-            case Some((head, rest)) if rest.isEmpty => head.validNel[ExpansionError]
-            case _ => ScalarRequired(name).upcast.invalidNel
-          }).map(Chain.fromSeq(_)))
+    def stringifyJson(name: Name, json: Json): ValidatedNel[ExpansionError, String] =
+      json.fold(
+        "null".validNel[ExpansionError],
+        b => (if (b) "true" else "false").validNel,
+        n => {
+          val bigD = n.toBigDecimal.getOrElse(BigDecimal.valueOf(n.toDouble))
+          if (config.doNotUseExponents) bigD.bigDecimal.toPlainString.validNel
+          else bigD.bigDecimal.toEngineeringString.validNel
+        },
+        _.validNel,
+        _ => JsonArrayForbidden(name).upcast.invalidNel,
+        _ => JsonObjectForbidden(name).upcast.invalidNel
+      )
+
+    def stringifyJsonWithReplacements(name: Name, json: Json): ValidatedNel[ExpansionError, Chain[String]] =
+      json.asArray.fold(stringifyJson(name, json).map(Chain.one)) {
+        Chain.fromSeq(_).traverse(stringifyJson(name, _))
       }
 
-      nullAttempt
-        .orElse(numberAttempt)
-        .orElse(stringAttempt)
-        .orElse(booleanAttempt)
-        .orElse(arrayAttempt)
-        .getOrElse(ScalarRequired(name).upcast.invalidNel)
+    def combineChunks(chunks: List[Chain[String]]): List[String] = {
+      def loop(remaining: List[Chain[String]]): Chain[Chain[String]] =
+        remaining match {
+          case Nil => Chain.one(Chain.empty)
+          case currentGroup :: rest =>
+            loop(rest).flatMap { result =>
+              currentGroup.map { chunk =>
+                result.prepend(chunk)
+              }
+            }
+        }
+
+      loop(chunks).map(_.mkString_("")).toList
     }
-
-    @tailrec
-    def combineChunks(remaining: List[Chain[String]], accum: Chain[Chain[String]]): Chain[Chain[String]] =
-      remaining match {
-        case Nil => accum
-        case currentGroup :: rest =>
-          val updatedAccum: Chain[Chain[String]] = currentGroup.flatMap { chunk =>
-            accum.map(_.append(chunk))
-          }
-          combineChunks(rest, updatedAccum)
-      }
 
     override def expandText(template: Template, data: Data): F[ValidatedNel[ExpansionError, String]] =
       template.elements
@@ -150,11 +189,7 @@ object TemplateExpander {
             data.values.get(name).orElse(constants.values.get(name)) match {
               case None if config.allowEmpty => config.placeholders.text.valid
               case None => MissingSubstitution(name).upcast.invalidNel
-              case Some(value) =>
-                stringifyJson(name, value).andThen(_.uncons match {
-                  case Some((str, rest)) if rest.isEmpty => str.valid
-                  case _ => ScalarRequired(name).upcast.invalidNel
-                })
+              case Some(value) => stringifyJson(name, value)
             }
         }
         .map(_.toList.mkString)
@@ -169,11 +204,10 @@ object TemplateExpander {
             data.values.get(name).orElse(constants.values.get(name)) match {
               case None if config.allowEmpty => Chain.one(config.placeholders.text).valid
               case None => MissingSubstitution(name).upcast.invalidNel
-              case Some(value) => stringifyJson(name, value)
+              case Some(value) => stringifyJsonWithReplacements(name, value)
             }
         }
-        .map(expansions => combineChunks(expansions.toList, Chain.empty))
-        .map(_.map(_.mkString_("")).toList)
+        .map(expansions => combineChunks(expansions.toList))
         .pure[F]
 
     override def expandJson(template: Template, data: Data): F[ValidatedNel[ExpansionError, Json]] =

@@ -9,6 +9,11 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.propspec.AnyPropSpec
 import org.scalatest.wordspec.AnyWordSpec
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
+import peschke.bulk_calls.PropertyTest.standardGens
+import peschke.bulk_calls.models.Template
+import peschke.bulk_calls.models.Template.Element.Substitution
+
+import java.math.{MathContext, RoundingMode}
 
 trait CommonSyntax extends Matchers with EitherValues with OptionValues
 
@@ -19,6 +24,15 @@ object PropertyTest {
   import scala.jdk.CollectionConverters._
 
   def rangeGen(r: Range): Gen[Int] = Gen.chooseNum(r.start, r.end).map(i => i - (i % r.step))
+
+  val genBigNumbers: Gen[BigDecimal] = {
+    val mathContexts = rangeGen(1 to 5).map(new MathContext(_, RoundingMode.DOWN))
+    val base = BigDecimal(Long.MaxValue)
+    for {
+      mathContext <- mathContexts
+      raw <- Gen.chooseNum(base, base * 2)
+    } yield raw(mathContext).rounded
+  }
 
   object jsonGens {
     val nullGen: Gen[Json] = Gen.const(Json.Null)
@@ -33,10 +47,12 @@ object PropertyTest {
         elements <- Gen.listOfN(len, values)
       } yield elements.asJson
 
+    val fieldNames: Gen[String] = rangeGen(1 to 30).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+
     def objGen(count: Range, values: Gen[Json]): Gen[Json] = {
       val fieldGen: Gen[(String, Json)] =
         for {
-          field <- Gen.alphaNumStr
+          field <- fieldNames
           value <- values
         } yield field -> value
       for {
@@ -90,6 +106,48 @@ object PropertyTest {
         }
       }
   }
+
+  object standardGens {
+    val templateNames: Gen[Template.Name] =
+      rangeGen(1 to 10)
+        .flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+        .map(Template.Name(_))
+
+    val constants: Gen[Template.Element.Const] =
+      rangeGen(0 to 10)
+        .flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+        .map(Template.Element.Const(_))
+
+    object substitutions {
+      def string(valueGen: Gen[String]): Gen[(Substitution, String, Json)] =
+        for {
+          name <- templateNames
+          (rendered, value) <- valueGen.map(s => s -> s.asJson)
+        } yield (Substitution(name), rendered, value)
+
+      def stringList(valueGen: Gen[List[String]]): Gen[(Substitution, List[String], Json)] =
+        for {
+          name <- templateNames
+          (rendered, value) <- valueGen.map(s => s -> s.asJson)
+        } yield (Substitution(name), rendered, value)
+
+      def renderedJson(valueGen: Gen[(String, Json)]): Gen[(Substitution, String, Json)] =
+        for {
+          name <- templateNames
+          (rendered, value) <- valueGen
+        } yield (Substitution(name), rendered, value)
+
+      def renderedJsonList(valueGen: Gen[(List[String], Json)]): Gen[(Substitution, List[String], Json)] =
+        for {
+          name <- templateNames
+          (rendered, value) <- valueGen
+        } yield (Substitution(name), rendered, value)
+    }
+  }
+}
+trait DefaultTestInstances {
+  implicit val arbTemplateName: Arbitrary[Template.Name] = Arbitrary(standardGens.templateNames)
+  implicit val arbConst: Arbitrary[Template.Element.Const] = Arbitrary(standardGens.constants)
 }
 
 trait WordTest extends AnyWordSpec with CommonSyntax

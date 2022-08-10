@@ -7,10 +7,10 @@ import cats.syntax.either._
 import cats.syntax.semigroup._
 import cats.syntax.applicative._
 import cats.{Id, Semigroup}
-import org.scalacheck.Gen
+import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.cats.instances._
 import org.scalatest.matchers.Matcher
-import peschke.bulk_calls.PropertyTest
+import peschke.bulk_calls.{DefaultTestInstances, PropertyTest}
 import peschke.bulk_calls.PropertyTest.rangeGen
 import peschke.bulk_calls.config.TemplateConfig.SubstitutionMarkers
 import peschke.bulk_calls.models.Template
@@ -60,7 +60,7 @@ class TemplateParserTest extends PropertyTest {
     forAll(FailureTest.openMarkersWithoutNames)(_ must failToParse)
   }
 }
-object TemplateParserTest {
+object TemplateParserTest extends DefaultTestInstances {
 
   val substitutionMarkers: Gen[SubstitutionMarkers] =
     Gen.oneOf(
@@ -78,10 +78,10 @@ object TemplateParserTest {
       fromElements(i, markers, e.pure[NonEmptyList])
 
     def fromElements(i: String, markers: SubstitutionMarkers, e: NonEmptyList[Element]): SuccessTest =
-      SuccessTest(i, markers, Template(e))
+      SuccessTest(i, markers, Template.fromNel(e))
 
     def fromElements(i: String, markers: SubstitutionMarkers, e0: Element, eN: Element*): SuccessTest =
-      SuccessTest(i, markers, Template(NonEmptyList(e0, eN.toList)))
+      SuccessTest(i, markers, Template.fromList(e0 :: eN.toList))
 
     implicit final val semigroup: Semigroup[SuccessTest] = Semigroup.instance[SuccessTest](
       (a, b) => SuccessTest(
@@ -93,19 +93,15 @@ object TemplateParserTest {
 
     val constants: Gen[SuccessTest] = substitutionMarkers.flatMap(constants(_))
     def constants(markers: SubstitutionMarkers): Gen[SuccessTest] =
-      rangeGen(0 to 10)
-        .flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-        .map(s => SuccessTest.fromElement(s, markers, Const(s)))
+      Arbitrary.arbitrary[Const].map(c => SuccessTest.fromElement(c.value, markers, c))
 
     val substitutions: Gen[SuccessTest] = substitutionMarkers.flatMap(substitutions(_))
     def substitutions(markers: SubstitutionMarkers): Gen[SuccessTest] =
-      rangeGen(1 to 10)
-        .flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-        .map { name =>
+      Arbitrary.arbitrary[Template.Name].map { name =>
           SuccessTest.fromElement(
-            s"${markers.open}$name${markers.close}",
+            s"${markers.open}${Template.Name.raw(name)}${markers.close}",
             markers,
-            Substitution(Template.Name(name))
+            Substitution(name)
           )
         }
 

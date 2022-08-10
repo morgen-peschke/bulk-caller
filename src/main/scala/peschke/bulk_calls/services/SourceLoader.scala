@@ -50,7 +50,7 @@ object SourceLoader {
 
     override def loadConstants(source: Source): F[Either[MalformedSource, Data.Constants]] =
       rawStream(source).compile.foldSemigroup.map {
-        _.fold(Data.Constants(Map.empty).asRight[MalformedSource]) { rawText =>
+        _.fold(Data.Constants.empty.asRight[MalformedSource]) { rawText =>
           io.circe.parser.parse(rawText)
             .leftMap(e => MalformedSource(-1, rawText, e.message))
             .flatMap { json =>

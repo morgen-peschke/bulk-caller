@@ -6,15 +6,14 @@ import cats.data.NonEmptyList
 import cats.instances.order._
 import cats.syntax.either._
 import cats.syntax.show._
-import cats.syntax.traverse._
 import cats.syntax.validated._
 import io.circe.syntax._
 import io.circe.{Json, parser}
-import org.scalacheck.cats.instances._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.EitherValues
 import org.scalatest.matchers.Matcher
-import peschke.bulk_calls.PropertyTest.{genBigNumbers, jsonGens, rangeGen, standardGens}
+import peschke.bulk_calls.PropertyTest.syntax._
+import peschke.bulk_calls.PropertyTest.{genBigNumbers, jsonGens, standardGens}
 import peschke.bulk_calls.config.TemplateConfig
 import peschke.bulk_calls.config.TemplateConfig.{Placeholders, SubstitutionMarkers}
 import peschke.bulk_calls.models.Data.Constants
@@ -25,8 +24,6 @@ import peschke.bulk_calls.services.TemplateExpander.ExpansionError
 import peschke.bulk_calls.services.TemplateExpander.ExpansionError.{ExpansionProducedInvalidJson, JsonArrayForbidden, JsonObjectForbidden}
 import peschke.bulk_calls.services.TemplateExpanderTest.{ExpandFailure, ExpandJsonSuccess, ExpandSuccess, ExpandTextSuccess, ExpandTextWithRepetitionSuccess}
 import peschke.bulk_calls.{DefaultTestInstances, PropertyTest}
-
-import scala.jdk.CollectionConverters._
 
 class TemplateExpanderTest extends PropertyTest {
   val expandText: Matcher[ExpandSuccess[String]] = Matcher { test =>
@@ -251,7 +248,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
       val badStringNesting =
         for {
           name <- Arbitrary.arbitrary[Template.Name]
-          json <- rangeGen(1 to 30).flatMap(Gen.stringOfN(_, Gen.alphaNumChar)).map(_.asJson)
+          json <- Gen.alphaNumChar.string(1 to 30).map(_.asJson)
         } yield {
           val expanded = s"""{"badNesting":"${json.compact}"}"""
           ExpandFailure(
@@ -267,7 +264,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
       val templateMissingParts =
         for {
           name <- Arbitrary.arbitrary[Template.Name]
-          json <- rangeGen(1 to 30).flatMap(Gen.stringOfN(_, Gen.alphaNumChar)).map(_.asJson)
+          json <- Gen.alphaNumChar.string(1 to 30).map(_.asJson)
         } yield {
           val expanded = s"""{"missingBits":"${json.compact}"""
           ExpandFailure(
@@ -306,9 +303,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
     val substitutionTemplates: Gen[ExpandTextSuccess] =
       for {
         prefix <- Arbitrary.arbitrary[Const]
-        (sub, rendered, value) <- standardGens.substitutions.string {
-          rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-        }
+        (sub, rendered, value) <- standardGens.substitutions.string(Gen.alphaNumChar.string(1 to 20))
         suffix <- Arbitrary.arbitrary[Const]
       } yield ExpandTextSuccess(
         input = Template.of(prefix, sub, suffix),
@@ -319,7 +314,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
     val mixedTemplates: Gen[ExpandTextSuccess] = {
       val singleSubstitutionGen: Gen[Either[(Const, String), (Substitution, String)]] =
         standardGens.substitutions
-          .string(rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar)))
+          .string(Gen.alphaNumChar.string(1 to 20))
           .map {
             case (substitution, str, _) => (substitution, str).asRight[(Const, String)]
           }
@@ -330,11 +325,10 @@ object TemplateExpanderTest extends DefaultTestInstances {
         }
 
       val elementsGen: Gen[List[Either[(Const, String), (Substitution, String)]]] =
-        rangeGen(2 to 10)
-          .map(List.fill(_)(Gen.oneOf(singleConstGen, singleSubstitutionGen)))
-          .flatMap(Gen.sequence(_))
+        Gen.oneOf(singleConstGen, singleSubstitutionGen)
+          .list(2 to 10)
           // distinctBy is needed to avoid substitutions with the same name
-          .map(_.asScala.toList.distinctBy(_.bimap(_._1, _._1.name).fold(_.value, Name.raw)))
+          .map(_.distinctBy(_.bimap(_._1, _._1.name).fold(_.value, Name.raw)))
 
       elementsGen.map { elements =>
         ExpandTextSuccess(
@@ -349,7 +343,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
 
     val missingDataWithConstants: Gen[ExpandTextSuccess] =
       mixedTemplates.flatMap { test =>
-        rangeGen(test.data.values.keys.toList.indices)
+        test.data.values.keys.toList.indices.gen
           .map(_.max(1))
           .map { numberToMove =>
             val (data, constants) = test.data.values.toList.sortBy(_._1).splitAt(numberToMove)
@@ -451,9 +445,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
       for {
         prefix <- Arbitrary.arbitrary[Const]
         (substitution, renders, value) <- standardGens.substitutions.stringList {
-          rangeGen(0 to 5).map(List.fill(_) {
-            rangeGen(0 to 5).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          }).flatMap(_.sequence)
+          Gen.alphaNumChar.string(0 to 5).list(0 to 5)
         }
         suffix <- Arbitrary.arbitrary[Const]
       } yield ExpandTextWithRepetitionSuccess(
@@ -466,15 +458,11 @@ object TemplateExpanderTest extends DefaultTestInstances {
       for {
         prefix <- Arbitrary.arbitrary[Const]
         (substitution1, renders1, value1) <- standardGens.substitutions.stringList {
-          rangeGen(0 to 5).map(List.fill(_) {
-            rangeGen(0 to 5).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          }).flatMap(_.sequence)
+          Gen.alphaNumChar.string(0 to 5).list(0 to 5)
         }
         sep <- Arbitrary.arbitrary[Const]
         (substitution2, renders2, value2) <- standardGens.substitutions.stringList {
-          rangeGen(0 to 5).map(List.fill(_) {
-            rangeGen(0 to 5).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          }).flatMap(_.sequence)
+          Gen.alphaNumChar.string(0 to 5).list(0 to 5)
         }
         suffix <- Arbitrary.arbitrary[Const]
       } yield {
@@ -535,7 +523,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
 
     val missingDataWithConstants: Gen[ExpandJsonSuccess] =
       mixedTemplates.flatMap { test =>
-        rangeGen(test.data.values.keys.toList.indices)
+        test.data.values.keys.toList.indices.gen
           .map(_.max(1))
           .map { numberToMove =>
             val (data, constants) = test.data.values.toList.sortBy(_._1).splitAt(numberToMove)

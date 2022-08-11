@@ -2,12 +2,15 @@ package peschke.bulk_calls.services
 
 import cats.Id
 import cats.data.NonEmptyList
+import cats.syntax.traverse._
 import io.circe.{CursorOp, Json}
 import io.circe.syntax._
 import org.scalacheck.Gen
+import org.scalacheck.cats.instances._
 import org.scalatest.matchers.Matcher
 import peschke.bulk_calls.PropertyTest
-import peschke.bulk_calls.PropertyTest.{jsonGens, rangeGen}
+import peschke.bulk_calls.PropertyTest.jsonGens
+import peschke.bulk_calls.PropertyTest.syntax._
 import peschke.bulk_calls.models.{JsonPath, When}
 import peschke.bulk_calls.services.WhenCheckerTest.NestedGens.{AnyGens, AtGens, ExistsGens, ForallGens, NotGens}
 import peschke.bulk_calls.services.WhenCheckerTest.UnnestedGens.ContainsGen
@@ -538,14 +541,14 @@ object WhenCheckerTest {
 
       def rawStringsWithPrefix: Gen[StringTest] =
         for {
-          prefix <- rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          suffix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+          prefix <- Gen.alphaNumChar.string(0 to 20)
+          suffix <- Gen.alphaNumChar.string(1 to 20)
         } yield StringTest(When.StartsWith(prefix), s"$prefix$suffix")
 
       def rawStringsWithoutPrefix: Gen[StringTest] =
         for {
-          prefix <- rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          suffix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+          prefix <- Gen.alphaNumChar.string(0 to 20)
+          suffix <- Gen.alphaNumChar.string(1 to 20)
         } yield StringTest(When.StartsWith(s"+$prefix"), s"-$prefix$suffix")
 
       def equalJsonStrings: Gen[JsonTest] = adaptStringToJsonTest(equalRawStrings)
@@ -568,14 +571,14 @@ object WhenCheckerTest {
 
       def rawStringsWithSuffix: Gen[StringTest] =
         for {
-          prefix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          suffix <- rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+          prefix <- Gen.alphaNumChar.string(1 to 20)
+          suffix <- Gen.alphaNumChar.string(0 to 20)
         } yield StringTest(When.EndsWith(suffix), s"$prefix$suffix")
 
       def rawStringsWithoutSuffix: Gen[StringTest] =
         for {
-          prefix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          suffix <- rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+          prefix <- Gen.alphaNumChar.string(1 to 20)
+          suffix <- Gen.alphaNumChar.string(0 to 20)
         } yield StringTest(When.EndsWith(s"$suffix+"), s"$prefix$suffix-")
 
       def equalJsonStrings: Gen[JsonTest] = adaptStringToJsonTest(equalRawStrings)
@@ -598,15 +601,15 @@ object WhenCheckerTest {
 
       def rawStringsWithSubstring: Gen[StringTest] =
         for {
-          prefix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          subString <- rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          suffix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+          prefix <- Gen.alphaNumChar.string(1 to 20)
+          subString <- Gen.alphaNumChar.string(0 to 20)
+          suffix <- Gen.alphaNumChar.string(1 to 20)
         } yield StringTest(When.Contains(subString), s"$prefix$subString$suffix")
 
       def rawStringsWithoutSubstring: Gen[StringTest] =
         for {
-          prefix <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
-          suffix <- rangeGen(0 to 20).flatMap(Gen.stringOfN(_, Gen.alphaNumChar))
+          prefix <- Gen.alphaNumChar.string(1 to 20)
+          suffix <- Gen.alphaNumChar.string(0 to 20)
         } yield StringTest(When.Contains(s"+$suffix+"), s"-$prefix-$suffix-")
 
       def equalJsonStrings: Gen[JsonTest] = adaptStringToJsonTest(equalRawStrings)
@@ -656,8 +659,8 @@ object WhenCheckerTest {
       private val paths: Gen[(JsonPath, Json => Json)] = {
         val downN: Gen[(CursorOp, String, Json => Json)] =
           for {
-            before <- rangeGen(1 to 10).map(List.range(0, _).map(i => s"p$i".asJson))
-            after <- rangeGen(1 to 5).map(List.range(0, _).map(i => s"s$i".asJson))
+            before <- (1 to 10).gen.map(List.range(0, _).map(i => s"p$i".asJson))
+            after <- (1 to 5).gen.map(List.range(0, _).map(i => s"s$i".asJson))
           } yield {
             val wrapper: Json => Json = j => (before ::: (j :: after)).asJson
             (CursorOp.DownN(before.length), s"[${before.length}]", wrapper)
@@ -667,12 +670,12 @@ object WhenCheckerTest {
           def fields(i: Int, tag: String): Gen[(String, Json)] = jsonGens.scalarGen.map(s"$i$tag" -> _)
 
           def fillFields(count: Int, tag: String): Gen[List[(String, Json)]] =
-            Gen.sequence(List.range(0, count).map(fields(_, tag))).map(_.asScala.toList)
+            List.range(0, count).traverse(fields(_, tag))
 
           for {
-            target <- rangeGen(1 to 20).flatMap(Gen.stringOfN(_, Gen.alphaChar))
-            before <- rangeGen(1 to 10).flatMap(fillFields(_, "p"))
-            after <- rangeGen(1 to 5).flatMap(fillFields(_, "s"))
+            target <- Gen.alphaChar.string(1 to 20)
+            before <- (1 to 10).gen.flatMap(fillFields(_, "p"))
+            after <- (1 to 5).gen.flatMap(fillFields(_, "s"))
           } yield {
             val wrapper: Json => Json = j => Json.fromFields(before ::: ((target, j) :: after))
 
@@ -680,11 +683,9 @@ object WhenCheckerTest {
           }
         }
 
-        rangeGen(1 to 5).flatMap { depth =>
-          Gen.listOfN(depth, Gen.oneOf(downN, downField)).map { layers =>
-            val (ops, names, wrappers) = layers.unzip3
-            JsonPath(ops, names.mkString(".", ".", "")) -> wrappers.foldLeft(identity[Json](_))(_.andThen(_))
-          }
+        Gen.oneOf(downN, downField).list(1 to 5).map { layers =>
+          val (ops, names, wrappers) = layers.unzip3
+          JsonPath(ops, names.mkString(".", ".", "")) -> wrappers.foldLeft(identity[Json](_))(_.andThen(_))
         }
       }
 
@@ -714,19 +715,19 @@ object WhenCheckerTest {
       val noElementsMatch: Gen[JsonTest] =
         for {
           test <- UnnestedGens.rejectingJsonTests
-          elements <- rangeGen(1 to 10).map(List.fill(_)(test.input))
+          elements <- (1 to 10).gen.map(List.fill(_)(test.input))
         } yield JsonTest(When.Any(test.when), elements.asJson)
 
       val noValuesMatch: Gen[JsonTest] =
         for {
           test <- UnnestedGens.rejectingJsonTests
-          elements <- rangeGen(1 to 10).map(List.range(0, _).map(i => s"f$i" -> test.input))
+          elements <- (1 to 10).gen.map(List.range(0, _).map(i => s"f$i" -> test.input))
         } yield JsonTest(When.Any(test.when), Json.fromFields(elements))
 
       val oneElementMatches: Gen[JsonTest] = UnnestedGens.acceptingJsonTests.flatMap { test =>
         for {
-          before <- rangeGen(1 to 10).map(List.range(0, _).map(i => s"p$i".asJson))
-          after <- rangeGen(1 to 5).map(List.range(0, _).map(i => s"s$i".asJson))
+          before <- (1 to 10).gen.map(List.range(0, _).map(i => s"p$i".asJson))
+          after <- (1 to 5).gen.map(List.range(0, _).map(i => s"s$i".asJson))
         } yield JsonTest(When.Any(test.when), (before ::: (test.input :: after)).asJson)
       }
 
@@ -734,24 +735,24 @@ object WhenCheckerTest {
         def fields(i: Int, tag: String): Gen[(String, Json)] = jsonGens.scalarGen.map(s"$i$tag" -> _)
 
         def fillFields(count: Int, tag: String): Gen[List[(String, Json)]] =
-          Gen.sequence(List.range(0, count).map(fields(_, tag))).map(_.asScala.toList)
+         List.range(0, count).traverse(fields(_, tag))
 
         for {
-          before <- rangeGen(1 to 10).flatMap(fillFields(_, "p"))
-          after <- rangeGen(1 to 5).flatMap(fillFields(_, "s"))
+          before <- (1 to 10).gen.flatMap(fillFields(_, "p"))
+          after <- (1 to 5).gen.flatMap(fillFields(_, "s"))
         } yield JsonTest(When.Any(test.when), Json.fromFields(before ::: (("target" -> test.input) :: after)))
       }
 
       val allElementsMatch: Gen[JsonTest] = UnnestedGens.acceptingJsonTests.flatMap { test =>
         for {
-          elements <- rangeGen(1 to 10).map(List.fill(_)(test.input))
+          elements <- (1 to 10).gen.map(List.fill(_)(test.input))
         } yield JsonTest(When.Any(test.when), elements.asJson)
       }
 
       val allValuesMatch: Gen[JsonTest] =
         for {
           test <- UnnestedGens.acceptingJsonTests
-          elements <- rangeGen(1 to 10).map(List.range(0, _).map(i => s"f$i" -> test.input))
+          elements <- (1 to 10).gen.map(List.range(0, _).map(i => s"f$i" -> test.input))
         } yield JsonTest(When.Any(test.when), Json.fromFields(elements))
     }
 
@@ -760,11 +761,11 @@ object WhenCheckerTest {
         val nonNumericGens = Gen.oneOf(
           jsonGens.boolGen, jsonGens.nullGen, jsonGens.stringGen.map(_._2)
         )
+
         for {
-          nonMatchingHead <- nonNumericGens
-          nonMatchingTail <- rangeGen(0 to 20).flatMap(Gen.listOfN(_, nonNumericGens))
+          nonMatching <-  nonNumericGens.nel(1 to 20)
           number <- jsonGens.numberGen.map(_._2)
-        } yield JsonTest(wrap(NonEmptyList(nonMatchingHead, nonMatchingTail).map(When.Equal(_))), number)
+        } yield JsonTest(wrap(nonMatching.map(When.Equal(_))), number)
       }
 
       val stringNoNestedWhensPasses: Gen[StringTest] = {
@@ -772,10 +773,9 @@ object WhenCheckerTest {
           jsonGens.boolGen, jsonGens.nullGen, jsonGens.numberGen.map(_._2)
         )
         for {
-          nonMatchingHead <- nonNumericGens
-          nonMatchingTail <- rangeGen(0 to 20).flatMap(Gen.listOfN(_, nonNumericGens))
+          nonMatching <-  nonNumericGens.nel(1 to 20)
           text <- jsonGens.stringGen.map(_._1)
-        } yield StringTest(wrap(NonEmptyList(nonMatchingHead, nonMatchingTail).map(When.Equal(_))), text)
+        } yield StringTest(wrap(nonMatching.map(When.Equal(_))), text)
       }
 
       val jsonOneNestedWhenPasses: Gen[JsonTest] = {
@@ -784,9 +784,7 @@ object WhenCheckerTest {
         )
         for {
           (_, input) <- jsonGens.numberGen
-          rejectingTests <- rangeGen(0 to 20).flatMap(Gen.listOfN(_, nonNumericGens)).map {
-            _.map(When.Equal(_))
-          }
+          rejectingTests <- nonNumericGens.list(0 to 20).map(_.map(When.Equal(_)))
         } yield JsonTest(wrap(NonEmptyList(When.Equal(input), rejectingTests)), input)
       }
 
@@ -796,9 +794,7 @@ object WhenCheckerTest {
         )
         for {
           (input, json) <- jsonGens.stringGen
-          rejectingTests <- rangeGen(0 to 20).flatMap(Gen.listOfN(_, nonNumericGens)).map {
-            _.map(When.Equal(_))
-          }
+          rejectingTests <- nonNumericGens.map(When.Equal(_)).list(0 to 20)
         } yield StringTest(wrap(NonEmptyList(When.Equal(json), rejectingTests)), input)
       }
 
@@ -808,10 +804,8 @@ object WhenCheckerTest {
         )
         for {
           (_, input) <- jsonGens.numberGen
-          acceptingTests <- rangeGen(1 to 20).map(List.fill(_)(When.Equal(input)))
-          rejectingTests <- rangeGen(1 to 20).flatMap(Gen.listOfN(_, nonNumericGens)).map {
-            _.map(When.Equal(_))
-          }
+          acceptingTests <- (1 to 20).gen.map(List.fill(_)(When.Equal(input)))
+          rejectingTests <- nonNumericGens.map(When.Equal(_)).list(1 to 20)
         } yield JsonTest(
           wrap(NonEmptyList(When.Equal(input), rejectingTests).concat(acceptingTests)),
           input
@@ -824,10 +818,8 @@ object WhenCheckerTest {
         )
         for {
           (input, json) <- jsonGens.stringGen
-          acceptingTests <- rangeGen(1 to 20).map(List.fill(_)(When.Equal(json)))
-          rejectingTests <- rangeGen(1 to 20).flatMap(Gen.listOfN(_, nonStringGens)).map {
-            _.map(When.Equal(_))
-          }
+          acceptingTests <- (1 to 20).gen.map(List.fill(_)(When.Equal(json)))
+          rejectingTests <- nonStringGens.map(When.Equal(_)).list(1 to 20)
         } yield StringTest(
           wrap(NonEmptyList(When.Equal(json), rejectingTests).concat(acceptingTests)),
           input
@@ -837,27 +829,25 @@ object WhenCheckerTest {
       val jsonAllNestedWhensPass: Gen[JsonTest] =
         Gen.oneOf(
           for {
-            len <- rangeGen(0 to 20)
+            len <- (0 to 20).gen
             test <- UnnestedGens.EqualityGens.acceptingJsonTests
           } yield JsonTest(wrap(NonEmptyList(test.when, List.fill(len)(test.when))), test.input),
-          for {
-            len <- rangeGen(1 to 10)
-            testsHead <- ContainsGen.rawStringsWithSubstring
-            testsTail <- Gen.sequence(List.fill(len)(ContainsGen.rawStringsWithSubstring)).map(_.asScala.toList)
-          } yield JsonTest(
-            wrap(NonEmptyList(testsHead.when, testsTail.map(_.when))),
-            testsTail.map(_.input).mkString(testsHead.input, "", "").asJson
-          )
+          ContainsGen.rawStringsWithSubstring.nel(1 to 10).map { tests =>
+            JsonTest(
+              wrap(tests.map(_.when)),
+              tests.map(_.input).toList.mkString.asJson
+            )
+          }
         )
 
       val stringAllNestedWhensPass: Gen[StringTest] =
         Gen.oneOf(
           for {
-            len <- rangeGen(0 to 20)
+            len <- (0 to 20).gen
             test <- UnnestedGens.EqualityGens.acceptingStringTests
           } yield StringTest(wrap(NonEmptyList(test.when, List.fill(len)(test.when))), test.input),
           for {
-            len <- rangeGen(1 to 10)
+            len <- (1 to 10).gen
             testsHead <- ContainsGen.rawStringsWithSubstring
             testsTail <- Gen.sequence(List.fill(len)(ContainsGen.rawStringsWithSubstring)).map(_.asScala.toList)
           } yield StringTest(

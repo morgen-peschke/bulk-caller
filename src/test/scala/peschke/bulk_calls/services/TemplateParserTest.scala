@@ -11,7 +11,7 @@ import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.cats.instances._
 import org.scalatest.matchers.Matcher
 import peschke.bulk_calls.{DefaultTestInstances, PropertyTest}
-import peschke.bulk_calls.PropertyTest.rangeGen
+import peschke.bulk_calls.PropertyTest.syntax._
 import peschke.bulk_calls.config.TemplateConfig.SubstitutionMarkers
 import peschke.bulk_calls.models.Template
 import peschke.bulk_calls.models.Template.Element
@@ -110,20 +110,13 @@ object TemplateParserTest extends DefaultTestInstances {
       NonEmptyList.of(constants(markers), substitutions(markers), constants(markers)).reduce
 
     val containsMultipleSubstitutions: Gen[SuccessTest] = substitutionMarkers.flatMap(containsMultipleSubstitutions(_))
-    def containsMultipleSubstitutions(markers: SubstitutionMarkers): Gen[SuccessTest] = {
-      rangeGen(1 to 10).flatMap { len =>
-        NonEmptyList(
-          containsOneSubstitution(markers),
-          List.fill(len)(containsOneSubstitution(markers))
-        ).reduce
-      }
-    }
+    def containsMultipleSubstitutions(markers: SubstitutionMarkers): Gen[SuccessTest] =
+      containsOneSubstitution(markers).nel(1 to 10).map(_.reduce)
 
     val unmatchedCloseMarkers: Gen[SuccessTest] = substitutionMarkers.flatMap(unmatchedCloseMarkers(_))
     def unmatchedCloseMarkers(markers: SubstitutionMarkers): Gen[SuccessTest] =
       for {
-        prefixLen <- rangeGen(0 to 10)
-        prefix <- Gen.stringOfN(prefixLen, Gen.alphaNumChar)
+        prefix <- Gen.alphaNumChar.string(0 to 10)
         input = s"$prefix${markers.close}"
       } yield SuccessTest.fromElement(input, markers, Const(input))
   }
@@ -167,25 +160,22 @@ object TemplateParserTest extends DefaultTestInstances {
     val missingCloseMarker: Gen[FailureTest] = substitutionMarkers.flatMap(missingCloseMarker(_))
     def missingCloseMarker(markers: SubstitutionMarkers): Gen[FailureTest] =
       for {
-        prefixLen <- rangeGen(0 to 10)
-        prefix <- Gen.stringOfN(prefixLen, Gen.alphaNumChar)
-        nameLen <- rangeGen(1 to 10)
-        name <- Gen.stringOfN(nameLen, Gen.alphaNumChar)
+        prefix <-Gen.alphaNumChar.string(0 to 10)
+        name <- Gen.alphaNumChar.string(1 to 10)
       } yield FailureTest(
         s"$prefix${markers.open}$name",
         markers,
-        missingCloseBraceExpectation(prefixLen + markers.open.length + nameLen, markers)
+        missingCloseBraceExpectation(prefix.length + markers.open.length + name.length, markers)
       )
 
     val openMarkersWithoutNames: Gen[FailureTest] = substitutionMarkers.flatMap(openMarkersWithoutNames(_))
     def openMarkersWithoutNames(markers: SubstitutionMarkers): Gen[FailureTest] =
-      for {
-        prefixLen <- rangeGen(0 to 10)
-        prefix <- Gen.stringOfN(prefixLen, Gen.alphaNumChar)
-      } yield FailureTest(
-        s"$prefix${markers.open}",
-        markers,
-        missingNameExpectation(prefixLen + markers.open.length)
-      )
+      Gen.alphaNumChar.string(0 to 10).map { prefix =>
+        FailureTest(
+          s"$prefix${markers.open}",
+          markers,
+          missingNameExpectation(prefix.length + markers.open.length)
+        )
+      }
   }
 }

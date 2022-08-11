@@ -47,7 +47,7 @@ class JsonPathTest extends WordTest {
 
     "reject unmatched quotes" in forAll(indexFieldsWithUnmatchedQuote)(_ must failToParse)
 
-    "reject unmatched braces" in forAll(indexFieldsWithUnmatchedBraces)(_ must gfailToParse)
+    "reject unmatched braces" in forAll(indexFieldsWithUnmatchedBraces)(_ must failToParse)
   }
 }
 object JsonPathTest extends DefaultTestInstances {

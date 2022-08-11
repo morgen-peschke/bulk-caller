@@ -6,7 +6,6 @@ import models.Template.{Element, Name}
 import models.{Data, Template}
 import services.TemplateExpander.ExpansionError
 import services.TemplateExpander.ExpansionError.{ExpansionProducedInvalidJson, JsonArrayForbidden, JsonObjectForbidden, MissingSubstitution}
-import utils.CirceUtils._
 import cats.data.{Chain, ValidatedNel}
 import cats.syntax.applicative._
 import cats.syntax.either._
@@ -218,7 +217,7 @@ object TemplateExpander {
             data.values.get(name).orElse(constants.values.get(name)) match {
               case None if config.allowEmpty => config.placeholders.jsonText.valid
               case None => MissingSubstitution(name).upcast.invalidNel
-              case Some(value) => value.printWith(Printer.noSpaces).valid
+              case Some(value) => value.compact.valid
             }
         }
         .map(_.toList.mkString)

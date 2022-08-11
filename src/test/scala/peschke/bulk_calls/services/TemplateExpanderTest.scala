@@ -3,18 +3,17 @@ package services
 
 import cats.Id
 import cats.data.NonEmptyList
-import cats.syntax.show._
-import cats.syntax.either._
-import cats.syntax.validated._
-import cats.syntax.traverse._
 import cats.instances.order._
-import io.circe.{Json, Printer, parser}
+import cats.syntax.either._
+import cats.syntax.show._
+import cats.syntax.traverse._
+import cats.syntax.validated._
 import io.circe.syntax._
-import org.scalacheck.{Arbitrary, Gen}
+import io.circe.{Json, parser}
 import org.scalacheck.cats.instances._
+import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.EitherValues
 import org.scalatest.matchers.Matcher
-import peschke.bulk_calls.{DefaultTestInstances, PropertyTest}
 import peschke.bulk_calls.PropertyTest.{genBigNumbers, jsonGens, rangeGen, standardGens}
 import peschke.bulk_calls.config.TemplateConfig
 import peschke.bulk_calls.config.TemplateConfig.{Placeholders, SubstitutionMarkers}
@@ -25,6 +24,7 @@ import peschke.bulk_calls.models.{Data, Template}
 import peschke.bulk_calls.services.TemplateExpander.ExpansionError
 import peschke.bulk_calls.services.TemplateExpander.ExpansionError.{ExpansionProducedInvalidJson, JsonArrayForbidden, JsonObjectForbidden}
 import peschke.bulk_calls.services.TemplateExpanderTest.{ExpandFailure, ExpandJsonSuccess, ExpandSuccess, ExpandTextSuccess, ExpandTextWithRepetitionSuccess}
+import peschke.bulk_calls.{DefaultTestInstances, PropertyTest}
 
 import scala.jdk.CollectionConverters._
 
@@ -233,7 +233,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         )
       } yield ExpandFailure(
         input = Template.one(Substitution(name)),
-        data = Data.ofJson(id)(name -> value),
+        data = Data.of(id)(name -> value),
         expected = NonEmptyList.one(error)
       )
 
@@ -243,7 +243,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         value <- jsonGens.objGen(0 to 10, jsonGens.scalarGen)
       } yield ExpandFailure(
         input = Template.one(Substitution(name)),
-        data = Data.ofJson(id)(name -> value),
+        data = Data.of(id)(name -> value),
         expected = NonEmptyList.one(ExpansionError.JsonObjectForbidden(name))
       )
 
@@ -253,10 +253,10 @@ object TemplateExpanderTest extends DefaultTestInstances {
           name <- Arbitrary.arbitrary[Template.Name]
           json <- rangeGen(1 to 30).flatMap(Gen.stringOfN(_, Gen.alphaNumChar)).map(_.asJson)
         } yield {
-          val expanded = s"""{"badNesting":"${json.printWith(Printer.noSpaces)}"}"""
+          val expanded = s"""{"badNesting":"${json.compact}"}"""
           ExpandFailure(
             input = Template.of(Const("""{"badNesting":""""), Substitution(name), Const(""""}""")),
-            data = Data.ofJson(id)(name -> json),
+            data = Data.of(id)(name -> json),
             expected = NonEmptyList.one(ExpansionProducedInvalidJson(
               expanded,
               parser.parse(expanded).left.value.show
@@ -269,10 +269,10 @@ object TemplateExpanderTest extends DefaultTestInstances {
           name <- Arbitrary.arbitrary[Template.Name]
           json <- rangeGen(1 to 30).flatMap(Gen.stringOfN(_, Gen.alphaNumChar)).map(_.asJson)
         } yield {
-          val expanded = s"""{"missingBits":"${json.printWith(Printer.noSpaces)}"""
+          val expanded = s"""{"missingBits":"${json.compact}"""
           ExpandFailure(
             input = Template.of(Const("""{"missingBits":""""), Substitution(name)),
-            data = Data.ofJson(id)(name -> json),
+            data = Data.of(id)(name -> json),
             expected = NonEmptyList.one(ExpansionProducedInvalidJson(
               expanded,
               parser.parse(expanded).left.value.show
@@ -312,7 +312,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         suffix <- Arbitrary.arbitrary[Const]
       } yield ExpandTextSuccess(
         input = Template.of(prefix, sub, suffix),
-        data = Data.ofJson(id)(sub.name -> value),
+        data = Data.of(id)(sub.name -> value),
         expected = s"${prefix.value}$rendered${suffix.value}"
       )
 
@@ -375,7 +375,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
       Gen.oneOf(nulls, booleans, numbers).map {
         case (substitution, str, json) => ExpandTextSuccess(
           input = Template.of(substitution),
-          data = Data.ofJson(id)(substitution.name -> json),
+          data = Data.of(id)(substitution.name -> json),
           expected = str
         )
       }
@@ -395,7 +395,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
       Gen.oneOf(renderPlain, renderUsingExponents).map {
         case ((substitution, str, json), config) => ExpandTextSuccess(
           input = Template.of(substitution),
-          data = Data.ofJson(id)(substitution.name -> json),
+          data = Data.of(id)(substitution.name -> json),
           config = config,
           expected = str
         )
@@ -458,7 +458,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         suffix <- Arbitrary.arbitrary[Const]
       } yield ExpandTextWithRepetitionSuccess(
         input = Template.of(prefix, substitution, suffix),
-        data = Data.ofJson(id)(substitution.name -> value),
+        data = Data.of(id)(substitution.name -> value),
         expected = renders.map(r => s"${prefix.value}$r${suffix.value}")
       )
 
@@ -482,7 +482,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         val name2 = Template.Name(s"Second:${Template.Name.raw(substitution2.name)}")
         ExpandTextWithRepetitionSuccess(
           input = Template.of(prefix, Substitution(name1), sep, Substitution(name2), suffix),
-          data = Data.ofJson(id)(name1 -> value1, name2 -> value2),
+          data = Data.of(id)(name1 -> value1, name2 -> value2),
           expected = for {
             first <- renders1
             second <- renders2
@@ -512,7 +512,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
     val constantTemplates: Gen[ExpandJsonSuccess] =
       Arbitrary.arbitrary[Json].map { json =>
         ExpandJsonSuccess(
-          input = Template.of(Const(json.printWith(Printer.noSpaces))),
+          input = Template.of(Const(json.compact)),
           data = Data.empty(id),
           expected = json
         )
@@ -529,7 +529,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         suffix <- Arbitrary.arbitrary[Const]
       } yield ExpandJsonSuccess(
         input = Template.of(Const("\""), prefix, sub, suffix, Const("\"")),
-        data = Data.ofJson(id)(sub.name -> value),
+        data = Data.of(id)(sub.name -> value),
         expected = s"${prefix.value}$rendered${suffix.value}".asJson
       )
 
@@ -555,7 +555,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
       } yield
         ExpandJsonSuccess(
           input = Template.of(Const(s"""{"$wrapper":"""), Substitution(name), Const("}")),
-          data = Data.ofJson(id)(name -> json),
+          data = Data.of(id)(name -> json),
           expected = Json.obj(wrapper -> json)
         )
 
@@ -573,7 +573,7 @@ object TemplateExpanderTest extends DefaultTestInstances {
         data = Data.empty(id),
         config = defaultConfig.copy(allowEmpty = true),
         expected =
-          s"${prefix.value}${defaultConfig.placeholders.json.printWith(Printer.noSpaces)}${suffix.value}".asJson
+          s"${prefix.value}${defaultConfig.placeholders.json.compact}${suffix.value}".asJson
       )
 
     val dataWithJsonArray: Gen[ExpandJsonSuccess] =

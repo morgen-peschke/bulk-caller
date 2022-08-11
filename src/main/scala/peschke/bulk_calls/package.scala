@@ -3,14 +3,15 @@ package peschke
 import cats.Show
 import cats.parse.Parser
 import cats.parse.Parser.Expectation
-import cats.syntax.show._
 import cats.syntax.either._
 import cats.syntax.foldable._
-import io.circe.{Codec, Decoder, Encoder, Json, Printer}
+import cats.syntax.show._
 import io.circe.syntax._
+import io.circe.{Codec, Decoder, Encoder, Json}
 import org.http4s.Status
+import peschke.bulk_calls.utils.CirceUtils
 
-package object bulk_calls {
+package object bulk_calls extends CirceUtils {
   implicit final val showHttp4sParseFailure: Show[org.http4s.ParseFailure] = Show.show(_.sanitized)
   implicit final val showCirceParsingFailure: Show[io.circe.ParsingFailure] = Show.show(_.message)
 
@@ -44,9 +45,7 @@ package object bulk_calls {
   )
 
   implicit final class ShowObjOps(private val show: Show.type) extends AnyVal {
-    def usingJsonEncoder[A: Encoder]: Show[A] = show.show { a =>
-      a.asJson.printWith(Printer.noSpaces)
-    }
+    def usingJsonEncoder[A: Encoder]: Show[A] = show.show(_.asJson.compact)
   }
 
   implicit final val showParseError: Show[Parser.Error] = Show.show { e =>

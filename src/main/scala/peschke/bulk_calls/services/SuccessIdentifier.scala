@@ -7,7 +7,6 @@ import models.{JsonPath, When}
 import services.SuccessIdentifier.Result
 import services.SuccessIdentifier.Result._
 import services.WhenChecker.syntax._
-import utils.CirceUtils._
 
 import cats.effect.Concurrent
 import cats.syntax.applicative._
@@ -151,7 +150,7 @@ object SuccessIdentifier {
       extractor match {
         case Left(regex) => details match {
           case ResponseDetails.ComplexTextResponse(_, body, _) => checkRegex(regex, body)
-          case ResponseDetails.JsonResponse(_, body) => checkRegex(regex, body.printWith(Printer.noSpaces))
+          case ResponseDetails.JsonResponse(_, body) => checkRegex(regex, body.compact)
           case ResponseDetails.NoBody(_) => none[ExtractionResult]
         }
         case Right(jsonPath) => details match {

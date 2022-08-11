@@ -2,9 +2,9 @@ package peschke.bulk_calls
 package config
 
 import com.typesafe.config.ConfigException
-import config.ConfigReader.syntax._
-import config.TemplateConfig.{Placeholders, SubstitutionMarkers}
-import io.circe.{Json, Printer}
+import io.circe.Json
+import peschke.bulk_calls.config.ConfigReader.syntax._
+import peschke.bulk_calls.config.TemplateConfig.{Placeholders, SubstitutionMarkers}
 import peschke.bulk_calls.models.Done
 
 final case class TemplateConfig(allowEmpty: Boolean,
@@ -14,7 +14,7 @@ final case class TemplateConfig(allowEmpty: Boolean,
                                )
 object TemplateConfig {
   final case class Placeholders(json: Json, text: String) {
-    def jsonText: String = json.printWith(Printer.noSpaces)
+    def jsonText: String = json.compact
   }
   object Placeholders {
     implicit val reader: ConfigReader[Placeholders] = ConfigReader.instance { (config, path) =>

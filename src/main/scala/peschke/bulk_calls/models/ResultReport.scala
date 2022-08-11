@@ -4,7 +4,6 @@ package models
 import models.Data.Identifier
 import models.ResultReport.ResultType
 import services.SuccessIdentifier.ResponseDetails
-import utils.CirceUtils._
 
 import cats.syntax.either._
 import io.circe.generic.semiauto._

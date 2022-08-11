@@ -1,15 +1,6 @@
 package peschke.bulk_calls
 package services
 
-import config.AppConfig
-import config.AppConfig.ReportingConfig
-import models.Data.Identifier
-import models.ResultReport.ResultType
-import models.{Done, ResultReport}
-import services.Reporter.ReportStatus
-import services.SourceLoader.MalformedSource
-import services.SuccessIdentifier.{ResponseDetails, Result}
-
 import cats.Show
 import cats.data.NonEmptyList
 import cats.effect.kernel.Concurrent
@@ -20,8 +11,16 @@ import cats.syntax.show._
 import com.typesafe.scalalogging.LazyLogging
 import fs2.io.file.{Files, Flags, Path}
 import fs2.text
+import io.circe.Json
 import io.circe.syntax._
-import io.circe.{Json, Printer}
+import peschke.bulk_calls.config.AppConfig
+import peschke.bulk_calls.config.AppConfig.ReportingConfig
+import peschke.bulk_calls.models.Data.Identifier
+import peschke.bulk_calls.models.ResultReport.ResultType
+import peschke.bulk_calls.models.{Done, ResultReport}
+import peschke.bulk_calls.services.Reporter.ReportStatus
+import peschke.bulk_calls.services.SourceLoader.MalformedSource
+import peschke.bulk_calls.services.SuccessIdentifier.{ResponseDetails, Result}
 
 trait Reporter[F[_]] {
   def reportUnableToAttempt(malformedSource: MalformedSource): F[Done]
@@ -74,7 +73,7 @@ object Reporter {
     def writeSuccess(report: ResultReport): F[Done] = writeReport(report, successPath)
     def writeFailure(report: ResultReport): F[Done] = writeReport(report, failurePath)
     def writeReport(report: ResultReport, path: Path): F[Done] =
-      fs2.Stream(report.asJson.printWith(Printer.noSpaces))
+      fs2.Stream(report.asJson.compact)
         .through(text.utf8.encode)
         .through(Files[F].writeAll(path / report.id.show, Flags.Write))
         .as(Done.upcast)

@@ -3,7 +3,6 @@ package models
 
 import models.Data.Identifier
 import models.Template.Name
-import utils.CirceUtils._
 
 import cats.Show
 import cats.syntax.either._
@@ -14,16 +13,7 @@ object Data {
 
   def empty(id: Identifier): Data = Data(id, Map.empty)
 
-  def ofJson(id: Identifier)(v0: (Name, Json), v1: (Name, Json)*): Data = Data(id, (v0 :: v1.toList).toMap)
-  def ofText(id: Identifier)(v0: (Name, String), v1: (Name, String)*): Data =
-    Data(
-      id,
-      (v0 :: v1.toList)
-        .map {
-          case (name, str) => name -> Json.fromString(str)
-        }
-        .toMap
-    )
+  def of(id: Identifier)(v0: (Name, Json), v1: (Name, Json)*): Data = Data(id, (v0 :: v1.toList).toMap)
 
   final case class Constants(values: Map[Name, Json])
   object Constants {

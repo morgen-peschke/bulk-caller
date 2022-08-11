@@ -1,4 +1,5 @@
-package peschke.bulk_calls.utils
+package peschke.bulk_calls
+package utils
 
 import io.circe.{Codec, Decoder, Encoder, Json}
 import io.circe.generic.semiauto._
@@ -7,7 +8,6 @@ import cats.syntax.either._
 import org.scalacheck.{Arbitrary, Gen}
 import peschke.bulk_calls.PropertyTest
 import peschke.bulk_calls.utils.CirceUtilsTest.Foo
-import peschke.bulk_calls.utils.CirceUtils._
 
 class CirceUtilsTest extends PropertyTest {
 

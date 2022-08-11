@@ -6,7 +6,6 @@ import models.{CallSpec, Data, Template}
 import services.ApiCaller.CallFailure
 import services.ApiCaller.CallFailure._
 import services.TemplateExpander.syntax._
-import utils.CirceUtils._
 
 import cats.Show
 import cats.data.{NonEmptyList, ValidatedNel}

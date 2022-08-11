@@ -2,22 +2,30 @@ package peschke.bulk_calls
 package utils
 
 import models.Done
-
 import cats.syntax.apply._
 import cats.syntax.either._
 import com.typesafe.scalalogging.LazyLogging
 import io.circe._
 import io.circe.syntax._
+import peschke.bulk_calls.utils.CirceUtils.{CodecExtraOps, DecoderExtraOps, DecoderObjExtraOps, EncoderExtraOps, EncoderObjExtraOps, JsonOps}
 
 import scala.reflect.runtime.universe.WeakTypeTag
 
+trait CirceUtils {
+  implicit def enableJsonOps(json: Json): JsonOps = new JsonOps(json)
+  implicit def enableDecoderExtraOps[A](decoder: Decoder[A]): DecoderExtraOps[A] = new DecoderExtraOps(decoder)
+  implicit def enableDecoderObjExtraOps(decoder: Decoder.type): DecoderObjExtraOps = new DecoderObjExtraOps(decoder)
+  implicit def enableEncoderExtraOps[A](encoder: Encoder[A]): EncoderExtraOps[A] = new EncoderExtraOps(encoder)
+  implicit def enableEncoderObjExtraOps(encoder: Encoder.type): EncoderObjExtraOps = new EncoderObjExtraOps(encoder)
+  implicit def enableCodecExtraOps[A](codec: Codec[A]): CodecExtraOps[A] = new CodecExtraOps(codec)
+}
 object CirceUtils extends LazyLogging {
   private [utils] final val IdentifierKey = "type"
   private [utils] final val ValueKey = "value"
 
   private def singletonDecoder[V: Encoder](value: V): Decoder[Done] = {
     val expected = value.asJson
-    val errorMsg = s"expected $IdentifierKey to be ${expected.printWith(Printer.noSpaces)}".asLeft
+    val errorMsg = s"expected $IdentifierKey to be ${expected.compact}".asLeft
     val success = Done.asRight
     Decoder.instance(_.as[Json])
       .emap { actual =>
@@ -25,7 +33,14 @@ object CirceUtils extends LazyLogging {
       }
   }
 
-  implicit final class DecoderExtraOps[A](private val decoder: Decoder[A]) extends AnyVal {
+  final class JsonOps(private val json: Json) extends AnyVal {
+    /**
+      * Handy alias for printing without spaces.
+      */
+    def compact: String = json.printWith(Printer.noSpaces)
+  }
+
+  final class DecoderExtraOps[A](private val decoder: Decoder[A]) extends AnyVal {
     /**
       * Remove the wrapper added by [[peschke.bulk_calls.utils.CirceUtils.EncoderExtraOps#withIdentifier]]
       */
@@ -46,7 +61,7 @@ object CirceUtils extends LazyLogging {
     }
   }
 
-  implicit final class DecoderObjExtraOps(private val decoder: Decoder.type) extends AnyVal {
+  final class DecoderObjExtraOps(private val decoder: Decoder.type) extends AnyVal {
     /**
       * Decode both sides of an [[scala.util.Either]] from the same [[io.circe.Json]] value
       *
@@ -56,7 +71,7 @@ object CirceUtils extends LazyLogging {
       bDecoder.map(_.asRight).or(aDecoder.map(_.asLeft))
   }
 
-  implicit final class EncoderExtraOps[A](private val encoder: Encoder[A]) extends AnyVal {
+  final class EncoderExtraOps[A](private val encoder: Encoder[A]) extends AnyVal {
     /**
       * Add a wrapper with a type-derived identifier.
       *
@@ -78,7 +93,7 @@ object CirceUtils extends LazyLogging {
     }
   }
 
-  implicit final class EncoderObjExtraOps(private val encoder: Encoder.type) extends AnyVal {
+  final class EncoderObjExtraOps(private val encoder: Encoder.type) extends AnyVal {
     /**
       * Encode both sides of an [[scala.util.Either]] to the same [[io.circe.Json]] value
       */
@@ -86,7 +101,7 @@ object CirceUtils extends LazyLogging {
       encoder.instance(_.fold(_.asJson, _.asJson))
   }
 
-  implicit final class CodecExtraOps[A](private val codec: Codec[A]) extends AnyVal {
+  final class CodecExtraOps[A](private val codec: Codec[A]) extends AnyVal {
     /**
       * Bundles both [[EncoderExtraOps#withIdentifier]] and [[DecoderExtraOps#withIdentifier]]
       *

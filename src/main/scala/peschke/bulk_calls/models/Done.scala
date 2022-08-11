@@ -4,6 +4,9 @@ package models
 import cats.Monoid
 import io.circe.{Encoder, Json}
 
+/**
+  * Works around issues related to the automatic insertion of `Unit`
+  */
 sealed trait Done {
   def upcast: Done = this
 }

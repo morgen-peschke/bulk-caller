@@ -8,6 +8,13 @@ import cats.Show
 import cats.syntax.either._
 import io.circe.{Decoder, Encoder, Json}
 
+/**
+  * The data used to fill in/expand a [[CallSpec]] into what's needed for an actual call.
+  *
+  * @param identifier A name or number used to identify the call in logs
+  * @param values Name & values pairs used for substitutions. Extra values are ok, missing value handling will depend
+  *               on the constants and configs.
+  */
 final case class Data(identifier: Identifier, values: Map[Name, Json])
 object Data {
 

@@ -6,10 +6,29 @@ import utils.NewType
 
 import org.http4s.Method
 
+/**
+  * Defines a call that can be made, if the appropriate data is available
+  */
 sealed abstract class CallSpec(val method: Method) extends Product with Serializable {
+  /**
+    * A template which, when expanded, provides the URL for the call.
+    */
   def url: Url
+
+  /**
+    * A list of template pairs which, when expanded, provide any query parameters for the call
+    */
   def queryParams: List[(QueryParamName, QueryParamValue)]
+
+  /**
+    * A list of template pairs which, when expanded, provide any headers for the call
+    */
   def extraHeaders: List[(HeaderName, HeaderValue)]
+
+  /**
+    * A specification describing the call's body.
+    * @return
+    */
   def body: Body
 }
 object CallSpec {
@@ -32,8 +51,21 @@ object CallSpec {
     def upcast: Body = this
   }
   object Body {
+    /**
+      * A template that expands into a JSON body.
+      *
+      * The template must produce valid JSON.
+      */
     final case class JsonBody(template: Template) extends Body
+
+    /**
+      * A template that expands into a plain text body.
+      */
     final case class TextBody(template: Template) extends Body
+
+    /**
+      * An explicit declaration that the call should not include a body.
+      */
     final case object EmptyBody extends Body
   }
 

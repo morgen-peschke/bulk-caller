@@ -21,7 +21,7 @@ import io.circe.{CursorOp, Decoder, Encoder, Json}
   * @param raw the raw versions, saved to make it easy to make serialization stable.
   */
 final case class JsonPath(segments: List[CursorOp], raw: String) {
-  def extract(json: Json): Result[Option[Json]]g =
+  def extract(json: Json): Result[Option[Json]] =
     json.hcursor.replay(segments).as[Option[Json]]
 }
 object JsonPath {
